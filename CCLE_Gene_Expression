@@ -1,0 +1,386 @@
+# Using code developed my Dr. Seema Plaisier to analyze the sex chromosomoe gene expression data from the Cancer Cell Line Encyclopedia (CCLE).
+## Note: This can be used for any genes found within the CCLE dataset.
+
+## Import necessary R packages:
+# load packages for use
+library(ggplot2)
+library(UpSetR)
+
+## Set working directory and data directories
+working_directory = "/Users/robertphavongurquidez/Desktop/BIO598_GenomicsResearchExperience/Mod6/Mod6_ManuscriptFigures/"  
+setwd(working_directory)
+data_directory = "/Users/robertphavongurquidez/Desktop/BIO598_GenomicsResearchExperience/Mod6/Mod6_ManuscriptFigures/"
+
+## Reading data files
+# load the CCLE gene expression data
+CCLE_data = read.csv(paste0(data_directory,"CCLE_RNAseq_genes_counts_20180929.csv"), header = TRUE)
+
+# load the annotation data
+annotation_data = read.csv(paste0(data_directory,"Cell_lines_annotations_20181226.txt"), header = TRUE, sep = "\t")
+
+
+## Exploring the CCLE data set
+# list values given for Gender in the cell line annotation
+levels(factor(annotation_data$Gender))
+
+# Get the cell lines reported as female or male
+lines_reported_female = annotation_data$CCLE_ID[annotation_data$Gender == "female"]
+length(lines_reported_female)
+
+lines_reported_male = annotation_data$CCLE_ID[annotation_data$Gender == "male"]
+length(lines_reported_male)
+
+# Get the cell lines reported with different pathology (type of tumor/tissue)
+levels(factor(annotation_data$Pathology))
+lines_reported_benign = na.omit(annotation_data$CCLE_ID[annotation_data$Pathology == "benign_neoplasia"])
+lines_reported_primary = na.omit(annotation_data$CCLE_ID[annotation_data$Pathology == "primary"])
+lines_reported_metastasis = na.omit(annotation_data$CCLE_ID[annotation_data$Pathology == "metastasis"])
+lines_reported_normal = na.omit(annotation_data$CCLE_ID[annotation_data$Pathology == "normal"])
+
+## Creating an upset plot to compare lists created. 
+## This plot visualizes overlap when you have more than 2 groups to compare.
+
+# Create a list of lists to compare
+list_sex_pathology= list(primary = lines_reported_primary, metastatic = lines_reported_metastasis, females = lines_reported_female, males = lines_reported_male)
+
+# Create an upset plot to compare lists to one another
+upset(fromList(list_sex_pathology))
+
+
+## Create lookup tables
+# This code will make a quick lookup table to get the reported age of the patient when the cell line was started
+
+# Pull out the Gender column of the annotation data frame
+get_reported_sex = annotation_data$Gender 
+
+# Use the CCLE_ID to label each entry of the reported sex
+# this creates a lookup table
+names(get_reported_sex) = annotation_data$CCLE_ID
+
+# Remove NA values which indicate that no sex was reported
+get_reported_sex = na.omit(get_reported_sex)
+
+# See what values you got from the reported sex in the Gender column
+# It's a good idea to check since sometimes there are values you don't expect to see
+levels(factor(get_reported_sex))
+
+# Filter for only the entries that are reported as "female" or "male"
+get_reported_sex = get_reported_sex[get_reported_sex == "female" | get_reported_sex == "male"]
+
+# Create a lookup table for pathology listed as "primary" or "metastasis"
+get_pathology = annotation_data$Pathology
+names(get_pathology) = annotation_data$CCLE_ID
+get_pathology = na.omit(get_pathology)
+levels(factor(get_pathology))
+get_pathology = get_pathology[get_pathology == "primary" | get_pathology == "metastasis"] # filter
+
+# Create a lookup table for age
+get_age = annotation_data$Age
+names(get_age) = annotation_data$CCLE_ID
+get_age = na.omit(get_age)
+levels(factor(get_age))
+
+# Create a lookup table for tumor site (the tissue type or organ the tumor was found in)
+get_site = annotation_data$Site_Primary
+names(get_site) = annotation_data$CCLE_ID
+get_site = na.omit(get_site)
+levels(factor(get_site))
+
+
+## Searching/Filtering for Gene of Interest
+
+# Set the gene that you are interested in
+chosen_gene = "XIST"
+
+# Pull out the data for this gene from the full data matrix
+chosen_gene_data = subset(CCLE_data, Description == chosen_gene)
+
+# Print the first few entries just to make sure you have data
+# if not, you might have indicated a gene name that is not present in the data set
+# which could be due to incorrect spelling or capitalization
+print(chosen_gene_data[1:10])
+
+# Remove the first two columns (Name and Description) since we are only want to plot expression data values
+chosen_gene_subset = subset(chosen_gene_data, select = -c(1,2))
+
+
+
+## Gene expression in cell lines with different reported sex
+
+# Pull out expression data for cell lines that had a reported sex of female or male
+chosen_gene_reported_sex = chosen_gene_subset[colnames(chosen_gene_subset) %in% names(get_reported_sex)]
+
+# Transpose and log transform the data so it's easier to work with and put it into a data frame
+chosen_gene_reported_sex = as.data.frame(t(log(chosen_gene_reported_sex)))
+
+# Set the name of the column to be "expression" so we know what to call it when we plot
+colnames(chosen_gene_reported_sex) = "expression"
+
+# Add a reported sex column
+chosen_gene_reported_sex$reported_sex = vector(length = nrow(chosen_gene_reported_sex)) # empty placeholders 
+for (cell_line in rownames(chosen_gene_reported_sex)) {
+  chosen_gene_reported_sex[cell_line,"reported_sex"] = get_reported_sex[cell_line]
+}
+
+# Use ggplot to visualize the data as a violin jitter plot
+
+ggplot(chosen_gene_reported_sex, aes(x=reported_sex, y=chosen_gene_reported_sex$expression, fill=reported_sex)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("#999999", "#E69F00"))+ geom_jitter(size = 0.75) + ylab(paste0(chosen_gene," Expression (log counts)")) + theme_light()
+
+# Add thresholds that can be used to predict reported sex
+## Note: See what the plots visually to then adjust thresholds
+high_threshold = 8
+low_threshold = 6
+ggplot(chosen_gene_reported_sex, aes(x=reported_sex, y=chosen_gene_reported_sex$expression, fill=reported_sex)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("#999999", "#E69F00"))+ geom_jitter(size = 0.75) + ylab(paste0(chosen_gene," Expression (log counts)")) + geom_hline(yintercept = high_threshold, linetype="dashed", color = "maroon") + geom_hline(yintercept = low_threshold, linetype="dashed", color = "blue") + theme_light()
+
+# Count how many cell lines reported female are in each region defined by the thresholds chosen
+num_females_over_high_threshold = nrow(subset(chosen_gene_reported_sex, reported_sex == "female" & expression >= high_threshold))
+num_females_between_thresholds = nrow(subset(chosen_gene_reported_sex, reported_sex == "female" & expression < high_threshold & expression > low_threshold))
+num_females_under_low_threshold = nrow(subset(chosen_gene_reported_sex, reported_sex == "female" & expression <= low_threshold))
+
+# Create pie chart to show proportions using the chosen threshold
+# Note: can use this to try a few different thresholds
+female_threshold_nums = c(num_females_over_high_threshold, num_females_between_thresholds, num_females_under_low_threshold)
+female_threshold_labels = c(paste0(">= high threshold of ",high_threshold),"between",paste0("<= low threshold of ",low_threshold))
+pie(female_threshold_nums, labels = female_threshold_labels, main = paste0 ("Thresholds for cell lines reported female [n =",sum(female_threshold_nums),"]"), col = c("orange","grey","blue"))
+
+# Now do the same for cell lines reported as male
+num_males_over_high_threshold = nrow(subset(chosen_gene_reported_sex, reported_sex == "male" & expression >= high_threshold))
+num_males_between_thresholds = nrow(subset(chosen_gene_reported_sex, reported_sex == "male" & expression < high_threshold & expression > low_threshold))
+num_males_under_low_threshold = nrow(subset(chosen_gene_reported_sex, reported_sex == "male" & expression <= low_threshold))
+
+male_threshold_nums = c(num_males_over_high_threshold, num_males_between_thresholds, num_males_under_low_threshold)
+male_threshold_labels = c(paste0(">= high threshold of ",high_threshold),"between",paste0("<= low threshold of ",low_threshold))
+pie(male_threshold_nums, labels = male_threshold_labels, main = paste0 ("Thresholds for cell lines reported male [n =",sum(male_threshold_nums),"]"), col = c("orange","grey","blue"))
+
+# Use chosen thresholds to predict sex based on expression
+
+# Start with all the cell lines that have expression of the gene you are using to make a prediction
+# make a data frame containing the expression
+predict_sex = data.frame(t(chosen_gene_subset))
+colnames(predict_sex) = "expression"
+
+# Add column for predicted sex
+#  NOTE: how this prediction is done should not be the same for all genes
+#  add a reported age column
+predict_sex$predicted_sex = vector(length = nrow(predict_sex)) # empty placeholders 
+for (cell_line in rownames(predict_sex)) {
+  if (log(predict_sex[cell_line,"expression"]) >= high_threshold) {
+    predict_sex[cell_line,"predicted_sex"] = "female"
+  } else if (log(predict_sex[cell_line,"expression"]) <= low_threshold) {
+    predict_sex[cell_line,"predicted_sex"] = "male"
+  } else if (log(predict_sex[cell_line,"expression"]) > low_threshold & log(predict_sex[cell_line,"expression"]) < high_threshold) {
+    predict_sex[cell_line,"predicted_sex"] = "can_not_predict"
+  }
+}
+
+# Add in the reported sex if present
+predict_sex$reported_sex = vector(length = nrow(predict_sex)) # empty placeholders 
+for (cell_line in rownames(predict_sex)) {
+  predict_sex[cell_line,"reported_sex"] = get_reported_sex[cell_line]
+}
+
+# Add the name of the gene you used to predict for good housekeeping
+expression_index = which( colnames(predict_sex)== "expression" )
+colnames(predict_sex)[expression_index] = paste0(chosen_gene,"_log_expression (thresholds = ",low_threshold,",",high_threshold,")")
+
+# write to output file so it can be look at it later
+predicted_sex_output_file = paste0("predicted_sex_",chosen_gene,".csv")
+write.csv(predict_sex, file = predicted_sex_output_file)
+predicted_sex_XIST <- read.csv("predicted_sex_XIST.csv")
+
+
+
+## Compare how successful XIST was able to predict sex using predicted_sex_Combined.csv dataset
+sum(is.na(predicted_sex_XIST$reported_sex)) # 169 values are NA within this dataset
+
+## Compare predicted_sex_GENE.csv and predicted_sex_Combined.csv
+# See how gene was able predict sex, by viewing how many cell lines match between sexes in a table
+practice_XIST <- table(predicted_sex_XIST$reported_sex, predicted_sex_XIST$predicted_sex)
+practice_XIST
+
+# View how gene was able to predict sex using a barplot using predicted_sex_XIST.csv
+x <- barplot(practice_XIST, 
+        legend.text = TRUE,
+        beside = TRUE,
+        main = "XIST gene for predicting sex",
+        xlab = "Reported Sex",
+        ylab = "Predicted Sex",
+        ylim=c(0,550),
+        args.legend=list(x = "topleft", bty = "n", inset=c(0.05, 0))
+        )
+
+y <- as.matrix(practice_XIST)
+
+text(x,y+20,labels=as.character(y))
+
+# Using predicted_sex_Combined.csv dataset to see how they compare to predicted_sex_Xist (Note: the same results appear, with the difference that the "can_not_predict from predicted_sex_XIST not being predicted as male or female)
+predicted_sex_Combined <- read.csv("predicted_sex_Combined.csv")
+predicted_Combined <- table(predicted_sex_Combined$XIST_expression_category, predicted_sex_Combined$reported_sex)
+predicted_Combined
+
+x <- barplot(predicted_Combined, 
+        legend.text = TRUE,
+        beside = TRUE,
+        main = "ChrX XIST gene for predicting sex",
+        xlab = "Reported Sex",
+        ylab = "XIST expression",
+        ylim=c(0,550),
+        args.legend=list(x = "topleft", bty = "n", inset=c(0.05, 0)),
+        col = (values = c("pink","lightgreen", "lightblue"))
+        )
+
+y <- as.matrix(predicted_Combined)
+
+text(x,y+20,labels=as.character(y))
+
+# From plot determine percentages of each sex was predicted successfully
+female = 195/(195+13+171)
+female
+male = 450/(450+15+6)
+male
+
+
+
+## Gene expression in cell lines with different pathology
+
+# Pull out expression data for cell lines that had a pathology annoted
+chosen_gene_pathology = chosen_gene_subset[colnames(chosen_gene_subset) %in% names(get_pathology)]
+
+# Transpose and log transform the data so it's easier to work with and put it into a data frame
+chosen_gene_pathology = as.data.frame(t(log(chosen_gene_pathology)))
+
+# Set the name of the column to be "expression" so we know what to call it when we plot
+colnames(chosen_gene_pathology) = "expression"
+
+# Create another column called 'pathology' and fill it with the pathology for the cell line
+chosen_gene_pathology$pathology = vector(length = nrow(chosen_gene_pathology)) # empty placeholders 
+for (cell_line in rownames(chosen_gene_pathology)) {
+  chosen_gene_pathology[cell_line,"pathology"] = get_pathology[cell_line]
+}
+
+
+# Use ggplot to visualize the data as a violin jitter plot
+
+ggplot(chosen_gene_pathology, aes(x=pathology, y=chosen_gene_pathology$expression, fill=pathology)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("lightblue", "blue")) + geom_jitter(size = 0.75) + ylab(paste0(chosen_gene," Expression (log counts)")) + theme_light()
+
+# Create another column called 'reported_sex' and fill it with the reported for the cell line
+chosen_gene_pathology$reported_sex[rownames(chosen_gene_pathology) %in% lines_reported_female] = "female"
+chosen_gene_pathology$reported_sex[rownames(chosen_gene_pathology) %in% lines_reported_male] = "male"
+
+# thinking about what we saw before, there are probably cell lines that have a pathology listed but not a reported sex
+
+# Confirm this by looking
+sum(is.na(chosen_gene_pathology$reported_sex))
+
+# Make a copy of this dataframe but filtered for those with a reported sex
+chosen_gene_pathology_sex = subset(chosen_gene_pathology, !is.na(chosen_gene_pathology$reported_sex))
+
+# Make a new column to group for pathology and sex
+chosen_gene_pathology_sex$pathology_sex <- paste0(chosen_gene_pathology_sex$pathology, "_", chosen_gene_pathology_sex$reported_sex)
+
+# Use ggplot to visualize the data as a violin jitter plot
+ggplot(chosen_gene_pathology_sex, aes(x=pathology_sex, y=chosen_gene_pathology_sex$expression, fill=pathology_sex)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("yellow", "green","orange", "darkgreen")) + geom_jitter(size = 0.75) + ylab(paste0(chosen_gene," Expression (log counts)")) + theme_light()
+
+
+## Gene expression in cell lines by age
+
+# Pull out the expression of our chosen gene for those cell lines where age is reported
+chosen_gene_reported_age = chosen_gene_subset[colnames(chosen_gene_subset) %in% names(get_age)]
+
+# Transpose and log transform the data so it's easier to work with and put it into a data frame
+chosen_gene_reported_age = as.data.frame(t(log(chosen_gene_reported_age)))
+
+# Set the name of the column to be "expression" so we know what to call it when we plot
+colnames(chosen_gene_reported_age) = "expression"
+
+
+# Add a reported age column
+chosen_gene_reported_age$age = vector(length = nrow(chosen_gene_reported_age)) # empty placeholders 
+for (cell_line in rownames(chosen_gene_reported_age)) {
+  chosen_gene_reported_age[cell_line,"age"] = get_age[cell_line]
+}
+
+# Use ggplot to visualize the data as a scatter plot
+ggplot(chosen_gene_reported_age, aes(x=chosen_gene_reported_age$age, y=chosen_gene_reported_age$expression)) + geom_point() +xlab("Reported Age") + ylab(paste0(chosen_gene," Expression (log counts)")) + theme_light()
+
+# Consider reported sex
+chosen_gene_reported_age$reported_sex = vector(length = nrow(chosen_gene_reported_age)) # empty placeholders 
+for (cell_line in rownames(chosen_gene_reported_age)) {
+  chosen_gene_reported_age[cell_line,"reported_sex"] = get_reported_sex[cell_line]
+}
+# Filter empty values
+chosen_gene_reported_age = chosen_gene_reported_age[!is.na(chosen_gene_reported_age$reported_sex),]
+
+# Use ggplot to visualize the data as a scatter plot with reported sex as color
+ggplot(chosen_gene_reported_age, aes(x=chosen_gene_reported_age$age, y=chosen_gene_reported_age$expression)) + geom_point(aes(color=reported_sex)) +xlab("Reported Age") + ylab(paste0(chosen_gene," Expression (log counts)")) + theme_light()
+
+
+# Consider pathology
+chosen_gene_reported_age$pathology = vector(length = nrow(chosen_gene_reported_age)) # empty placeholders 
+for (cell_line in rownames(chosen_gene_reported_age)) {
+  chosen_gene_reported_age[cell_line,"pathology"] = get_pathology[cell_line]
+}
+# Filter empty values
+chosen_gene_reported_age = chosen_gene_reported_age[!is.na(chosen_gene_reported_age$pathology),]
+
+# Use ggplot to visualize the data as a scatter plot with reported sex as color
+ggplot(chosen_gene_reported_age, aes(x=chosen_gene_reported_age$age, y=chosen_gene_reported_age$expression)) + geom_point(aes(color=reported_sex,shape=pathology)) + scale_shape_manual(values = c(16,1)) + xlab("Reported Age") + ylab(paste0(chosen_gene," Expression (log counts)")) + theme_light()
+
+
+
+## Gene expression in cell lines with tissue type
+
+# Pull out expression data for cell lines that had a tissue type annotated
+chosen_gene_tissuetype = chosen_gene_subset[colnames(chosen_gene_subset) %in% names(get_site)]
+
+# Transpose and log transform the data so it's easier to work with and put it into a data frame
+chosen_gene_tissuetype = as.data.frame(t(log(chosen_gene_tissuetype)))
+
+# Set the name of the column to be "expression" so we know what to call it when we plot
+colnames(chosen_gene_tissuetype) = "expression"
+
+# Create another column called 'tissuetype' and fill it with tissue type of the tumor the cell line came from
+chosen_gene_tissuetype$tissuetype = vector(length = nrow(chosen_gene_tissuetype)) # empty placeholders 
+for (cell_line in rownames(chosen_gene_tissuetype)) {
+  chosen_gene_tissuetype[cell_line,"tissuetype"] = get_site[cell_line]
+}
+
+# Use ggplot to visualize the data as a violin jitter plot
+#    NOTE: if you see a warning saying that groups with 
+#      less than two data points will be dropped, that is fine.  
+#      This just means that you can make a violin out of 2 or less points
+
+ggplot(chosen_gene_tissuetype, aes(x=tissuetype, y=chosen_gene_tissuetype$expression, fill=tissuetype)) + geom_violin(trim = FALSE) + geom_jitter(size = 0.25) + ylab(paste0(chosen_gene," Expression (log counts)")) + theme_light() + theme(legend.position = "bottom", axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust=1))
+
+# Create another column called 'reported_sex' and fill it with the reported for the cell line
+chosen_gene_tissuetype$reported_sex[rownames(chosen_gene_tissuetype) %in% lines_reported_female] = "female"
+chosen_gene_tissuetype$reported_sex[rownames(chosen_gene_tissuetype) %in% lines_reported_male] = "male"
+
+# Thinking about what we saw before, there are probably cell lines that have a tissue type listed but not a reported sex
+# confirm this by looking
+sum(is.na(chosen_gene_tissuetype$reported_sex))
+
+# Make a copy of this dataframe but filtered for those with a reported sex
+chosen_gene_tissuetype_sex = subset(chosen_gene_tissuetype, !is.na(chosen_gene_tissuetype$reported_sex))
+
+# Make a new column to group for pathology and sex
+chosen_gene_tissuetype_sex$tissuetype_sex <- paste0(chosen_gene_tissuetype_sex$tissuetype, "_", chosen_gene_tissuetype_sex$reported_sex)
+
+# Use ggplot to visualize the data as a violin jitter plot
+ggplot(chosen_gene_tissuetype_sex, aes(x=tissuetype_sex, y=chosen_gene_tissuetype_sex$expression, fill=tissuetype_sex)) + geom_violin(trim = FALSE) + geom_jitter(size = 0.25) + ylab(paste0(chosen_gene," Expression (log counts)")) + theme_light() + theme(legend.position = "bottom", axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust=1))
+
+
+## List all the packages used for future reference
+sessionInfo()
+
+
+
+
+
+
+
+
+
+
+
+
